@@ -1,124 +1,83 @@
-// --- server.js ---
-
-const express = require("express");
-const cors = require("cors");
+// 1. Import Dependencies
+require('dotenv').config(); // Loads environment variables from .env file
+const express = require('express');
+const cors = require('cors');
+const mongoose = require('mongoose');
+const { Schema } = mongoose; // Import Schema to use for relationships
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const port = process.env.PORT || 3000;
 
-// === MIDDLEWARE ===
-// Enable Cross-Origin Resource Sharing so your Angular app can talk to this API
+// 2. Middleware
 app.use(cors());
-// Enable the express server to parse JSON bodies in requests
-app.use(express.json());
+app.use(express.json()); // Allows us to parse JSON in the request body
 
-// === IN-MEMORY DATABASE (for demonstration) ===
-// In a real application, you would connect to a database like MongoDB or PostgreSQL.
-let portfolioData = {
-  profile: {
-    name: "Larry P. Sinining",
-    bio: "Innovative Software Engineer with a passion for developing robust and scalable web applications. Experienced in the full software development lifecycle, from concept to deployment.",
-    skills: [
-      "Angular",
-      "TypeScript",
-      "Node.js",
-      "Express",
-      "PostgreSQL",
-      "Docker",
-      "AWS",
-    ],
-    contact: {
-      email: "larry.sinining@email.com",
-      github: "https://github.com/larrysinining",
-      linkedin: "https://linkedin.com/in/larrysinining",
-    },
-  },
-  projects: [
-    {
-      id: 1,
-      title: "E-commerce Platform",
-      description:
-        "A full-featured e-commerce website with a custom CMS and payment gateway integration.",
-      technologies: ["Angular", "NestJS", "PostgreSQL"],
-      liveDemoUrl: '#',
-      sourceCodeUrl: '#',
-    },
-    {
-      id: 2,
-      title: "Real-time Chat Application",
-      description:
-        "A scalable chat application using WebSockets for instant messaging and user authentication.",
-      technologies: ["Angular", "Firebase", "RxJS"],
-      liveDemoUrl: '#',
-      sourceCodeUrl: '#',
-    },
-    {
-      id: 3,
-      title: "Project Management Tool",
-      description:
-        "An interactive dashboard for visualizing complex datasets using D3.js, providing insightful charts and graphs for business intelligence.",
-      technologies: [
-        "Angular",
-        "TypeScript",
-        "Drag & Drop API",
-        "Node.js",
-        "MongoDB",
-      ],
-      liveDemoUrl: '#',
-      sourceCodeUrl: '#',
-    },
-    {
-      id: 4,
-      title: "Data Visualization Dashboard",
-      description:
-        "A scalable chat application using WebSockets for instant messaging and user authentication.",
-      technologies: ["Angular", "D3.js", "RxJs", "REST APIs", "SCSS"],
-      liveDemoUrl: '#',
-      sourceCodeUrl: '#',
-    },
-  ],
-};
-
-// === API ROUTES (ENDPOINTS) ===
-
-// --- Profile Routes ---
-app.get("/api/v1/profile", (req, res) => {
-  res.json(portfolioData.profile);
+// 3. Define Mongoose Schemas (with a relationship)
+const ProfileSchema = new mongoose.Schema({
+  name: String,
+  title: String,
+  bio: String,
+  skills: [String],
+  // This field will store an array of MongoDB ObjectIDs
+  // The 'ref' tells Mongoose that these IDs refer to documents in the 'Project' collection.
+  projects: [{ type: Schema.Types.ObjectId, ref: 'Project' }]
 });
 
-app.put("/api/v1/profile", (req, res) => {
-  // Update the profile data with the data from the request body
-  portfolioData.profile = { ...portfolioData.profile, ...req.body };
-  res.json(portfolioData.profile);
+const ProjectSchema = new mongoose.Schema({
+  // We no longer need a custom 'id' field, MongoDB provides a unique '_id' automatically.
+  title: String,
+  description: String,
+  technologies: [String],
+  liveDemoUrl: String,
+  sourceCodeUrl: String,
 });
 
-// --- Project Routes ---
-app.get("/api/v1/projects", (req, res) => {
-  res.json(portfolioData.projects);
-});
+// Create Mongoose Models (Our interface to the database collections)
+const Profile = mongoose.model('Profile', ProfileSchema);
+const Project = mongoose.model('Project', ProjectSchema);
 
-// Get a single project by its ID
-app.get("/api/v1/projects/:id", (req, res) => {
-  const projectId = parseInt(req.params.id, 10);
-  const project = portfolioData.projects.find((p) => p.id === projectId);
+// 4. Connect to MongoDB
+mongoose.connect(process.env.MONGO_URI)
+  .then(() => console.log('Successfully connected to MongoDB Atlas!'))
+  .catch(error => console.error('Error connecting to MongoDB Atlas:', error));
 
-  if (project) {
-    res.json(project);
-  } else {
-    res.status(404).send("Project not found");
+
+// --- API Endpoints ---
+
+const apiV1Router = express.Router();
+
+// GET Profile (This is now the ONLY 'get' endpoint we need for fetching data)
+apiV1Router.get('/profile', async (req, res) => {
+  try {
+    // .populate('projects') tells Mongoose to fetch the full project documents
+    const profile = await Profile.findOne().populate('projects');
+    if (!profile) {
+      return res.status(404).json({ message: 'Profile not found' });
+    }
+    res.json(profile);
+  } catch (error) {
+    res.status(500).json({ message: 'Server error fetching profile', error });
   }
 });
 
-app.post("/api/v1/projects", (req, res) => {
-  const newProject = {
-    id: Date.now(), // Create a unique ID for the new project
-    ...req.body,
-  };
-  portfolioData.projects.push(newProject);
-  res.status(201).json(newProject);
+// UPDATE Profile (remains the same)
+apiV1Router.put('/profile', async (req, res) => {
+  try {
+    const updatedProfile = await Profile.findOneAndUpdate({}, req.body, {
+      new: true, // This option returns the updated document
+      upsert: true // This option creates the document if it doesn't exist
+    });
+    res.json(updatedProfile);
+  } catch (error) {
+    res.status(500).json({ message: 'Server error updating profile', error });
+  }
 });
 
-// === START THE SERVER ===
-app.listen(PORT, () => {
-  console.log(`Server is running on http://localhost:${PORT}`);
+// Mount the versioned router
+app.use('/api/v1', apiV1Router);
+
+
+// 5. Start the Server
+app.listen(port, () => {
+  console.log(`Server is running on http://localhost:${port}`);
 });
